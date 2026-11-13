@@ -1,0 +1,3 @@
+# Official Thorlabs Python SDK; includes its native binary. Python >=3.10.
+thorlabs-xa==1.9.2.29178
+# AD3 uses ctypes from the standard library plus the installed WaveForms runtime.
