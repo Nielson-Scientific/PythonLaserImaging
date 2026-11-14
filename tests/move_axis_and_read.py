@@ -7,7 +7,7 @@ from laser_hardware import DigilentAD3, ThorlabsStage
 AXIS = "Z_AXIS"
 
 # Input Params
-STEP_SIZE_UM = 100
+STEP_SIZE_UM = 10
 MEASUREMENT_BREADTH_UM = 2000
 MEASUREMENT_START_UM = 500
 
