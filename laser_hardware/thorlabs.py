@@ -1,6 +1,28 @@
 """Thorlabs XA backend, verified against official thorlabs-xa 1.9.2.29178."""
 from math import isfinite
-from .core import Axis, Stage, attempt_all
+import logging
+from threading import Lock
+from .core import Axis, Stage
+
+_session_lock = Lock()
+_log = logging.getLogger(__name__)
+
+
+def _open_device(manager, info, mode):
+    """Keep ownership if XA opens a handle but Python wrapper creation fails.
+
+    Mirrors SystemManager.open_device in the pinned SDK, adding rollback.
+    """
+    native = manager.native_functions
+    handle = native.open(info.device, info.transport, mode)
+    try:
+        return manager.device_factory.create(handle, native.get_device_info(handle))
+    except BaseException:
+        try:
+            native.close(handle)
+        except Exception:
+            _log.exception('XA failed to close handle after wrapper creation failed')
+        raise
 
 
 def _matches_device(info, serial, part, parent=None):
@@ -89,10 +111,19 @@ class ThorlabsStage(Stage):
         channels = channels or dict(x='90876914', y='90876915', z='90876913')
         if set(channels) != {'x', 'y', 'z'} or len(set(channels.values())) != 3:
             raise ValueError('Provide distinct x, y, z channel serials')
-        self.manager = SystemManager.instance()
-        self.manager.startup()
-        opened = []
+        if not _session_lock.acquire(blocking=False):
+            raise RuntimeError('Another ThorlabsStage XA session is already open in this process; '
+                               'close it before creating a new one.')
+        self._owns_session = True
+        self._closed = True
+        self._devices = []
+        self.manager = None
+        operation = 'creating XA manager'
         try:
+            self.manager = SystemManager.instance()
+            operation = 'starting XA'
+            self.manager.startup()
+            operation = 'discovering XA devices'
             devices = self.manager.get_device_list()
             if not any(_matches_device(d, controller, 'BSC203') for d in devices):
                 raise RuntimeError(
@@ -110,23 +141,53 @@ class ThorlabsStage(Stage):
                         f'Expected one SCC201 {channels[name]!r} under {controller!r}.\n'
                         f'{_describe_devices(devices)}')
                 info = matches[0]
-                device = self.manager.open_device(info.device, info.transport,
+                operation = f'opening {name.upper()} channel {info.device!r} on {info.transport!r}'
+                device = _open_device(self.manager, info,
                     enums.TLMC_OperatingMode.TLMC_OperatingMode_Default)
-                opened.append(device)
+                self._devices.append(device)
+                operation = f'configuring {name.upper()} channel {info.device!r}'
                 axes[name] = _XAAxis(device, enums,
                     f'NanoMax 300 {name.upper()} Axis (DRV001)', timeout_ms,
                     (limits or {}).get(name))
             super().__init__(**axes)
-        except BaseException:
-            try:
-                attempt_all([d.close for d in opened] + [self.manager.shutdown])
-            except Exception:
-                pass
+        except BaseException as exc:
+            _log.error('Thorlabs connection failed while %s: %s', operation, exc)
+            for error in self._release_session():
+                _log.error('Additional XA cleanup failure: %s', error)
             raise
 
+    def _release_session(self):
+        """Close children in reverse order, then shut down; attempt every step."""
+        errors = []
+        try:
+            actions = [d.close for d in reversed(self._devices)]
+            if self.manager is not None:
+                actions.append(self.manager.shutdown)
+            for action in actions:
+                try:
+                    action()
+                except BaseException as exc:
+                    errors.append(exc)
+        finally:
+            self._devices.clear()
+            self._closed = True
+            if self._owns_session:
+                self._owns_session = False
+                _session_lock.release()
+        return errors
+
     def close(self):
-        if not self._closed:
-            try:
-                super().close()
-            finally:
-                self.manager.shutdown()
+        if self._owns_session:
+            errors = self._release_session()
+            if errors:
+                for error in errors[1:]:
+                    _log.error('Additional XA cleanup failure: %s', error)
+                raise errors[0]
+
+    def __exit__(self, exc_type, exc, traceback):
+        try:
+            self.close()
+        except BaseException:
+            if exc is None:
+                raise
+            _log.exception('XA cleanup failed while handling another exception')

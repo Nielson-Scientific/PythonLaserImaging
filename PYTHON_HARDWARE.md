@@ -94,6 +94,18 @@ configuration are rejected. Timeout aborts the acquisition. The hardware objects
 are intended for single-threaded scripts, with one owner per physical device;
 do not share the XA session with another XA client in the same process.
 
+The adapter rejects overlapping `ThorlabsStage` sessions within one process.
+Startup, discovery, and partial channel-opening failures trigger cleanup; opened
+children close in reverse order before XA shutdown. Cleanup failures are logged,
+and a scan exception is preserved if shutdown also fails. The pinned SDK's native
+open/factory sequence is wrapped to close a handle if Python wrapper creation
+fails. Connection errors log the operation and channel being attempted. No
+automatic connection retries or parameter-loading bypasses are applied.
+The session guard cannot exclude a separate Python process or vendor GUI; close
+those applications before running a hardware script. A forced process kill
+bypasses Python context-manager cleanup. If native cleanup itself reports errors,
+do not assume USB ownership was successfully released.
+
 ## Replacing hardware
 
 `ADC` and `Axis` in `laser_hardware/core.py` define the capability contracts. A new
