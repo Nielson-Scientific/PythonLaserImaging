@@ -1,6 +1,8 @@
 """Run from the project root: python -m tests.move_axis_and_read."""
 from decimal import Decimal
 
+import matplotlib.pyplot as plt
+
 from laser_hardware import DigilentAD3, ThorlabsStage
 
 # Axis
@@ -49,6 +51,16 @@ def main():
     with ThorlabsStage() as stage, DigilentAD3() as adc:
         measurements = scan_axis(stage, adc)
     print('Measurements (position_um, voltage_v):', measurements)
+    positions_um, voltages_v = zip(*measurements)
+    fig, ax = plt.subplots()
+    ax.plot(positions_um, voltages_v, marker='.', linestyle='-')
+    axis_name = AXIS.upper().removesuffix('_AXIS')
+    ax.set_xlabel(f'{axis_name} position (µm)')
+    ax.set_ylabel('ADC measurement (V)')
+    ax.set_title(f'ADC measurement vs. {axis_name} position')
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    plt.show()
     return measurements
 
 
