@@ -3,8 +3,11 @@
 Uses the current stage origin without homing. All distances are micrometres.
 """
 from decimal import Decimal
+from datetime import datetime
+from pathlib import Path
 
 from laser_hardware import AD3Config, DigilentAD3, ThorlabsStage
+from ParameterParsing import measurement_array_to_json
 
 
 # Input parameters: breadth is the distance from start, not the endpoint.
@@ -21,6 +24,13 @@ Z_MEASUREMENT_BREADTH_UM = 500
 Z_MEASUREMENT_START_UM = 2500
 
 ADC_CHANNEL = 1  # Zero-based: physical Scope 2, matching move_axis_and_read.py.
+
+OUTPUT_DIRECTORY = Path(__file__).resolve().parents[1] / 'scan_results'
+SAMPLE_NAME = 'xyz_scan'
+INTENSITY_BIT_DEPTH = 8
+# Map the detector signal (0 to 1 V) to JSON intensity counts (0 to 255).
+# Adjust this range to your signal when a different intensity scale is desired.
+JSON_MEASUREMENT_RANGE_V = (0.0, 1.0)
 
 
 def axis_positions(start_um, breadth_um, step_size_um):
@@ -67,12 +77,28 @@ def scan_xyz(stage, adc, *,
     return measurements
 
 
+def save_measurements(measurements, output_directory=OUTPUT_DIRECTORY):
+    """Save a timestamped version-2 JSON file and return its absolute path."""
+    exporter = measurement_array_to_json(
+        measurements, sample_name=SAMPLE_NAME,
+        intensity_bit_depth=INTENSITY_BIT_DEPTH,
+        measurement_range=JSON_MEASUREMENT_RANGE_V,
+        step_um=(X_STEP_SIZE_UM, Y_STEP_SIZE_UM, Z_STEP_SIZE_UM))
+    directory = Path(output_directory).resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    filename = f'xyz_scan_{datetime.now():%Y%m%d_%H%M%S_%f}.json'
+    path = exporter.write(directory / filename)
+    print(f'Saved measurements to: {path}')
+    return path
+
+
 def main():
     import matplotlib.pyplot as plt
 
     with ThorlabsStage() as stage, DigilentAD3(AD3Config(channel=ADC_CHANNEL)) as adc:
         measurements = scan_xyz(stage, adc)
     print(f'Collected {len(measurements)} measurements (coordinates_um, voltage_v).')
+    save_measurements(measurements)
 
     coordinates, voltages = zip(*measurements)
     xs, ys, zs = zip(*coordinates)
