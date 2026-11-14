@@ -9,9 +9,9 @@ from laser_hardware import DigilentAD3, ThorlabsStage
 AXIS = "Z_AXIS"
 
 # Input Params
-STEP_SIZE_UM = 10
-MEASUREMENT_BREADTH_UM = 2000
-MEASUREMENT_START_UM = 500
+STEP_SIZE_UM = 2
+MEASUREMENT_BREADTH_UM = 500
+MEASUREMENT_START_UM = 2500
 
 
 def scan_axis(stage, adc, axis=AXIS, step_size_um=STEP_SIZE_UM,
