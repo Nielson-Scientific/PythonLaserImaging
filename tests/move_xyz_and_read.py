@@ -92,6 +92,64 @@ def save_measurements(measurements, output_directory=OUTPUT_DIRECTORY):
     return path
 
 
+def plot_measurements(measurements):
+    """Display all points initially; slider hides ADC values below its threshold.
+
+    Filtering changes only the display, never the recorded or exported data.
+    Return the figure and slider so callers can retain the interactive widget.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import Normalize
+    from matplotlib.widgets import Slider
+    import numpy as np
+
+    if not measurements:
+        raise ValueError('No measurements to plot')
+    coordinates, voltages = zip(*measurements)
+    coordinates = np.asarray(coordinates, dtype=float)
+    voltages = np.asarray(voltages, dtype=float)
+    if coordinates.shape != (len(voltages), 3) or not (
+            np.isfinite(coordinates).all() and np.isfinite(voltages).all()):
+        raise ValueError('Expected finite coordinate triplets and voltages')
+    low, high = float(voltages.min()), float(voltages.max())
+    # Give constant-valued scans a usable slider and nonzero color range.
+    span = max(high - low, 0.001)
+    slider_high = high + span * 0.01
+    norm = Normalize(vmin=low, vmax=high if high > low else low + span)
+    fig = plt.figure()
+    fig.subplots_adjust(bottom=0.22, right=0.85)
+    ax = fig.add_subplot(111, projection='3d')
+    points = ax.scatter(*coordinates.T, c=voltages, cmap='viridis', norm=norm)
+    ax.set_xlabel('X position (um)')
+    ax.set_ylabel('Y position (um)')
+    ax.set_zlabel('Z position (um)')
+    # Hold the full scan bounds even when every point is filtered out.
+    ax.set_xlim(ax.get_xlim())
+    ax.set_ylim(ax.get_ylim())
+    ax.set_zlim(ax.get_zlim())
+    ax.set_title(f'XYZ scan: {len(voltages)}/{len(voltages)} points visible')
+    fig.colorbar(ScalarMappable(norm=norm, cmap='viridis'), ax=ax,
+                 label='ADC measurement (V)', pad=0.15)
+    slider_ax = fig.add_axes([0.24, 0.08, 0.60, 0.03])
+    slider = Slider(slider_ax, 'Minimum ADC (V)', low, slider_high,
+                    valinit=low, valfmt='%.6f')
+
+    def update(threshold):
+        nonlocal points
+        visible = voltages >= threshold
+        points.remove()
+        points = ax.scatter(*coordinates[visible].T, c=voltages[visible],
+                            cmap='viridis', norm=norm)
+        ax.set_title(f'XYZ scan: {int(visible.sum())}/{len(voltages)} points visible')
+        fig.canvas.draw_idle()
+
+    slider.on_changed(update)
+    # Matplotlib widgets require a strong reference while their window is open.
+    fig.threshold_slider = slider
+    return fig, slider
+
+
 def main():
     import matplotlib.pyplot as plt
 
@@ -99,18 +157,7 @@ def main():
         measurements = scan_xyz(stage, adc)
     print(f'Collected {len(measurements)} measurements (coordinates_um, voltage_v).')
     save_measurements(measurements)
-
-    coordinates, voltages = zip(*measurements)
-    xs, ys, zs = zip(*coordinates)
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    points = ax.scatter(xs, ys, zs, c=voltages, cmap='viridis')
-    ax.set_xlabel('X position (um)')
-    ax.set_ylabel('Y position (um)')
-    ax.set_zlabel('Z position (um)')
-    ax.set_title('XYZ scan: ADC measurement')
-    fig.colorbar(points, ax=ax, label='ADC measurement (V)', pad=0.15)
-    fig.tight_layout()
+    fig, slider = plot_measurements(measurements)
     plt.show()
     return measurements
 
