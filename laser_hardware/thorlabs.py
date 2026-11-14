@@ -3,6 +3,22 @@ from math import isfinite
 from .core import Axis, Stage, attempt_all
 
 
+def _matches_device(info, serial, part, parent=None):
+    """XA fixed-width discovery fields may contain surrounding whitespace."""
+    return (info.device.strip() == serial.strip()
+            and info.part_number.strip() == part
+            and (parent is None or info.parent_device.strip() == parent.strip()))
+
+
+def _describe_devices(devices):
+    if not devices:
+        return 'XA returned no devices.'
+    return '\n'.join(
+        f"  part={d.part_number!r}, device={d.device!r}, "
+        f"parent={d.parent_device!r}, transport={d.transport!r}"
+        for d in devices)
+
+
 class _XAAxis(Axis):
     def __init__(self, device, enums, product, timeout_ms, limits=None):
         self.device, self.e, self.timeout_ms = device, enums, timeout_ms
@@ -78,14 +94,21 @@ class ThorlabsStage(Stage):
         opened = []
         try:
             devices = self.manager.get_device_list()
-            if not any(d.device == controller and d.part_number == 'BSC203' for d in devices):
-                raise RuntimeError(f'BSC203 {controller} not discovered: {devices}')
+            if not any(_matches_device(d, controller, 'BSC203') for d in devices):
+                raise RuntimeError(
+                    f'BSC203 {controller!r} not discovered.\n{_describe_devices(devices)}\n'
+                    'Check controller power and USB, verify detection in the Thorlabs XA '
+                    'GUI, then close other controller applications before retrying. '
+                    'If XA reports a different controller identifier, pass that exact '
+                    'identifier as controller=... .')
             axes = {}
             for name in ('x', 'y', 'z'):
-                matches = [d for d in devices if d.device == channels[name]
-                           and d.parent_device == controller and d.part_number == 'SCC201']
+                matches = [d for d in devices
+                           if _matches_device(d, channels[name], 'SCC201', controller)]
                 if len(matches) != 1:
-                    raise RuntimeError(f'Expected one SCC201 {channels[name]} under {controller}')
+                    raise RuntimeError(
+                        f'Expected one SCC201 {channels[name]!r} under {controller!r}.\n'
+                        f'{_describe_devices(devices)}')
                 info = matches[0]
                 device = self.manager.open_device(info.device, info.transport,
                     enums.TLMC_OperatingMode.TLMC_OperatingMode_Default)

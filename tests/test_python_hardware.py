@@ -4,10 +4,26 @@ from types import SimpleNamespace as NS
 from unittest.mock import patch
 
 from laser_hardware import Stage, SimulatedAxis, SimulatedADC, DigilentAD3
-from laser_hardware.thorlabs import _XAAxis
+from laser_hardware.thorlabs import _XAAxis, _describe_devices, _matches_device
 
 
 class HardwareTests(unittest.TestCase):
+    def test_discovery_matches_padded_fields_without_accepting_wrong_devices(self):
+        controller = NS(device='70876912', part_number='BSC203 ', parent_device='')
+        self.assertTrue(_matches_device(controller, '70876912', 'BSC203'))
+        self.assertFalse(_matches_device(controller, 'different', 'BSC203'))
+        channel = NS(device='90876913 ', part_number='SCC201 ', parent_device='70876912 ')
+        self.assertTrue(_matches_device(channel, '90876913', 'SCC201', '70876912'))
+        self.assertFalse(_matches_device(channel, '90876913', 'SCC201', 'other'))
+
+    def test_discovery_diagnostics_show_identifiers(self):
+        self.assertEqual(_describe_devices([]), 'XA returned no devices.')
+        message = _describe_devices([NS(part_number='BSC203', device='controller-id',
+                                       parent_device='', transport='USB')])
+        self.assertIn("device='controller-id'", message)
+        self.assertIn("part='BSC203'", message)
+        self.assertIn("transport='USB'", message)
+
     def test_relative_and_partial_absolute(self):
         with Stage(*(SimulatedAxis() for _ in range(3))) as stage:
             stage.stage_move_relative(10, 20, 30)
