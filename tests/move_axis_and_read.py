@@ -48,7 +48,7 @@ def scan_axis(stage, adc, axis=AXIS, step_size_um=STEP_SIZE_UM,
 
 
 def main():
-    with ThorlabsStage() as stage, DigilentAD3(AD3Config(channel=2)) as adc:
+    with ThorlabsStage() as stage, DigilentAD3(AD3Config(channel=1)) as adc:
         measurements = scan_axis(stage, adc)
     print('Measurements (position_um, voltage_v):', measurements)
     positions_um, voltages_v = zip(*measurements)
